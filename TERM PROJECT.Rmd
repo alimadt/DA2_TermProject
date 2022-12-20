@@ -1,0 +1,284 @@
+---
+title: "How does economic growth affect the air pollution (2019)"
+author: "Alima Dzhanybaeva"
+output:
+  pdf_document:
+         latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r include=FALSE}
+library(dplyr)
+library(modelsummary)
+library(estimatr)
+library(corrplot)
+library(knitr)
+library(ggplot2)
+```
+```{r include=FALSE}
+# Downloading raw World Bank data from github repository
+url <- "https://raw.githubusercontent.com/alimadt/DA2_TermProject/master/data/world_bank.csv"
+data <- read.csv(url, sep=';')
+
+#Renaming and deleting some variables 
+data <- data %>% 
+  rename(
+    Country = country,
+    co2 = Var.6,
+    gdp = Var.7,
+    industry = Var.8,
+    ren_energy = Var.9,
+    trade = Var.10
+  )
+data <- data %>% select(-c('iso2c', 'iso3c', 'year'))
+
+# Downloading second dataset
+url2 <- "https://raw.githubusercontent.com/alimadt/DA2_TermProject/master/data/freedom.csv"
+data2 <- read.csv(url2, sep = ';')
+```
+
+# Introduction
+Nowadays, global warming is one of the most serious and often-discussed world problems. In 2015 on The Paris Climate Conference several goals to keep the growth of the world's temperature below 2° were established (United Nations, 2017). It is very important to understand the impact of economic growth and other stimuli on the condition of the environment in order to fight the issue of climate change with no harm to economic prosperity and to achieve the goals that were set up on the COP21. Health problems, droughts, floods, damage to ecosystems can become consequences of environmental degradation (IPCC, 2014). Consequently, the activity of people is the main driver of climate change (Steffen, 2011). Therefore, it is crucial for humanity to be aware of how economic composites can influence the air that we breathe.
+This paper will concentrate on the effect of economic growth on CO2 emissions, controlling for some variables that might have statistical significance – industry, technological development, renewable energy consumption, trade as a portion of total GDP, and institutional quality. The aim of the paper is to find which of these determinants can influence air pollution. The results of our estimation will help to provide rational policy recommendations that will help to decrease harmful emissions and try to reduce the possible harm to zero.
+
+# Data
+CO2 emissions were used as a proxy for air pollution, which is quite common for this research field. Subsequently, more than 80% of the total GHG emissions in the world are represented by CO2 emissions (World Bank 2014). As CO2 emissions are measured in metric tons per capita, it makes the adjustment for the effect of population growth on the level of pollution level irrelevant. Real GDP per capita is used in order to find out the effect on air pollution by economic growth. The decrease in environmental degradation might be induced by substitution to greener energy sources. Renewable energy consumption as the share of total energy consumption is used for the measure of the substitution effect. Further, trade as a share of total GDP  is used to measure its the influence on the degradation of the environment. This variable is the sum of imports and exports of goods and services as the share of total GDP. All aforesaid data is extracted from the World Bank for the year 2019. The original dataset consists of 264 observations (countries, specific areas and classifications).
+
+The sum of the political rights index and the civil liberties index is used in this paper as a proxy for institutional quality. The variable is extracted from Freedom House (2019). The initial country-level dataset includes 205 entries.
+
+ \newpage
+
+## Data cleaning and transformation of variables
+
+The names for some countries did not match in the two datasets. Therefore,  to successfully merge them, the names for the 19 countries were changed. After joining the tables, we were left with 194 observations.
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# Renaming countries so we can join two datasets
+data2$Country[39] <- 'Congo, Rep.'
+data2$Country[40] <- 'Congo, Dem. Rep.'
+data$Country[57] <- 'Czech Republic'
+data$Country[67] <- 'Egypt'
+data$Country[129] <- 'Kyrgyzstan'
+data$Country[130] <- 'Laos'
+data$Country[201] <- 'Russia'
+data$Country[158] <- 'Micronesia'
+data$Country[125] <- 'North Korea'
+data$Country[126] <- 'South Korea'
+data$Country[213] <- 'Slovakia'
+data$Country[235] <- 'Syria'
+data$Country[86] <- 'The Gambia'
+data$Country[244] <- 'Turkey'
+data$Country[257] <- 'Venezuela'
+data$Country[262] <- 'Yemen'
+data$Country[17] <- 'Bahamas'
+data$Country[32] <- 'Brunei'
+data$Country[113] <- 'Iran'
+
+# Joining two datasets by country name
+df <- inner_join(data, data2, by = 'Country')
+
+# Changing type for some variables
+df$industry <- as.numeric(df$industry)
+df$PR <- as.numeric(df$PR)
+df$CL <- as.numeric(df$CL)
+
+# Transforming varianles for the upcoming analysis
+df$inst_quality <- df$PR + df$CL
+df$ln_co2 <- log(df$co2)
+df$ln_gdp <- log(df$gdp)
+df$ln_industry <- log(df$industry)
+```
+Further, in order to have a look on the distribution of our dependent variable (CO2 emissions) the graph below was constructed.
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=5, fig.height=3, fig.align = 'center'}
+# Distribution of CO2 emmisions
+ggplot(df, aes(x=co2, y = ..density..)) + geom_histogram(color="darkblue", fill="lightblue") +
+  geom_vline(aes(xintercept=mean(co2)),
+             color="blue", linetype="dashed", size=1) +
+  labs(title = "Distribution of CO2 emissions", 
+       x = "CO2 emissions (metric tons per capita)",
+       y = "Density")
+```
+As we can see from the graph, the distribution is skewed to the right, therefore, the log transformation was decided to be applied to the dependent variable.
+
+For the future analysis, the same transformation was applied to two independent variables (GDP per capita and Industry), as the points on the scatter-plot were tightly spaced at the right part of the graphs for both variables, but after they were 'loged', the distribution became more dispersed (Appendix, Figure 1 and 2).
+
+## Summary statistics
+In the table below you can get familiar with the summary statistics for all variables before the transformation. 
+```{r echo=FALSE}
+# Summary statistics table
+P95 <- function(x){quantile(x,0.95,na.rm=T)}
+P05 <- function(x){quantile(x,0.05,na.rm=T)}
+datasummary( (`CO2 emissions` = co2 ) + 
+               (`GDP per capita` = gdp) +
+               (`Industry` = industry) +
+               (`Ren. energy((% of total energy consumption)` = ren_energy) +
+               (`Trade (% of GDP)` = trade) + 
+               (`Institutional quality` = inst_quality) ~
+             N + Mean + Median + SD + Min + Max + P05 + P95 , 
+             data = df,
+             title = 'Descriptive statistics') %>%
+   kableExtra::kable_styling(latex_options = c("HOLD_position","scale_down"))
+```
+
+\newpage
+
+# Hypothesis
+GDP per capita is expected to have a positive sign, indicating that with development and rising economic activity, the emissions are expected to rise with them. However, it may vary across countries with different income levels, therefore the sign of this variable is not as unambiguous as it seems at first glance. The expected impact of renewable energy is negative, as a higher share of this kind of source will decrease air pollution. Trade is hypothesized to increase unwanted emissions, as it involves energy use for transportation, with resulting air pollution and other environmental impacts. Finally, institutional quality is expected to negatively affect CO2 emissions because institutions play the main role in implementing policies targeted to reduce emissions.
+
+# Correlation matrix
+Further, in order look at the relationship between all variables in the generated data frame the correlation matrix was constructed (Appendix, Figure 3). 
+
+The correlations between dependent variable (ln_co2) and independent variables indeed prove all the signs that were assumed in the *Hypothesis* part.
+
+# Model and estimation results
+Based on the results that we got in the previous parts of the project, the analysis will be based on the following model :
+$$log(CO2)=\alpha+\beta_1( log(GPCpc) )+\beta_2( log(industry) ) +\beta_3( ren-energy ) + \beta_4( trade )  + \beta_5( log(inst-quality)$$
+The results of OLS with Robust Standard Errors are presented in the table below:
+```{r echo=FALSE}
+# OLS
+mod <- lm_robust(ln_co2~ln_gdp+ln_industry+trade+ren_energy+inst_quality, data=df)
+
+# Estimation results
+cm <- c('(Intercept)' = 'Intercept', 'ln_gdp'='log(GDPpc)', 'ln_industry'='log(industry)',
+        'trade'='Trade', 'ren_energy'='Renewable energy', 'inst_quality'='Institutional quality')
+msummary(mod,
+         fmt="%.3f",
+         gof_omit = 'DF|Deviance|Log.Lik.|F|AIC|BIC|PseudoR2|RMSE|Num.Obs',
+         coef_rename = cm,
+         stars=c('*' = .10, '**' = .05, '***' = 0.01)
+) %>%
+   kableExtra::kable_styling(latex_options = "HOLD_position")
+```
+\newpage
+
+As can be seen from the table of results, *GDP per capita* is highly significant (even at 1% significance level) and has a negative effect on environmental degradation. Thus, as countries become more developed and their income per capita increases with time, the amount of CO2 emissions increases. On average, the 10% increase in economic growth leads to a 7% increase in harmful emissions, ceteris paribus.
+
+The *industry* is not statistically different from zero even at 10% significance level, however, it indeed increases air pollution in the countries. Holding other variables constant, if *industry* increases by 10% the amount of malicious emissions increases by 0.3% on average. The sign for this variable was expected to be positive, as this sector is associated with about 14,7 percent of total CO2 emissions in the world (Guardian, 2011).
+
+*Trade* was found to have a negative effect on CO2 emissions, however, the coefficient is very low statistically insignificant even at 10% significance level.
+
+The results show that the share of renewable energy consumption is also highly statistically significant. On average, when the *ren-energy* increases by 1% the CO2 emissions decrease by 2%. This sector has the potential to have a bigger impact on reducing the unlikely emissions, as was ascertained in many studies. It is undeniable that countries should shift to renewable energy because this change could bring benefits not only to the air quality but for the overall ecological situation in the country.
+
+*Institutional quality* is statistically different from zero at 1% significance level. Even though the coefficient for this variable is positive, we can conclude that institutional quality has a negative effect on CO2 emissions, as high indexes are associated with a low level of freedom in the country. On average, if one of the two components of the generated variable for *institutional quality* (the political rights index or the civil liberties index) increases by 1, CO2 emissions also increases by 4.5%, ceteris paribus. This may come from the fact that countries with better institutional quality are more developed and have better control over all aspects including the non-economic ones.
+
+## Estimation results of regressions for countries with different income levels 
+Further, as the effect of some independent variables may be different depending on the country’s income level, I decided to run the same OLS with Robust Standard Errors but separately for low-income, lower-middle-income, upper-middle-income, and high-income countries (Appendix, Figure 4). 
+
+The key points that can be highlighted:
+
+- The coefficient of GDP per capita is statistically different from zero at 1% significance level across all groups. The highest coefficient is for the *Low-Income* and *Upper-Middle-Income* countries.
+
+- Renewable energy is also highly statistically significant for all countries. It has the biggest effect on decreasing the emissions for *Low-Income* and *Lower-Middle* income countries.
+
+- Institutional quality is significant at 5% significance level for *Middle* income countries and at 1% for *High-Income* countries. The magnitude of the coefficients increases with the income level of the group.
+
+# Conclusion
+This study has examined factors affecting air pollution across the globe for the year 2019 using OLS with Robust Standard Errors. There are in total 194 countries in the dataset generated by merging tables from World Bank and Freedom House.
+
+The findings implied that 3 out of 5 independent variables, which we have been considered, got significant effects on CO2 emissions: GDP per capita increased air pollution, and renewable energy and institutional quality – decreased. Additionally, the magnitude of the coefficients vary across different income level groups.
+
+
+# Appendix
+### *Figure 1*: GDP per capita before and after transformation
+```{r echo=FALSE, message=FALSE, warning=FALSE, figures-side, fig.show="hold", out.width="50%"}
+# Graphs for GDP per capita
+ggplot(df, aes(x=gdp, y=ln_co2)) + geom_point()+
+  labs(x='GDP per capita (current US$)', y = 'log(CO2)')+ 
+  geom_point(color="darkblue", fill="lightblue") +  geom_smooth()
+
+ggplot(df, aes(x=ln_gdp, y=ln_co2)) + geom_point()+
+  labs(x='log(GDPpc)', y = 'log(CO2)')+ 
+  geom_point(color="darkblue", fill="lightblue") +  geom_smooth()
+```
+
+### *Figure 2*: Industry before and after transformation
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.show="hold", out.width="50%"}
+# Graphs for Industry
+ggplot(df, aes(x=industry, y=ln_co2)) + geom_point()+
+  labs(x='Industry (including construction), value added (current US$)', y = 'log(CO2)')+ 
+  geom_point(color="darkblue", fill="lightblue") +  geom_smooth()
+
+ggplot(df, aes(x=ln_industry, y=ln_co2)) + geom_point()+
+  labs(x='log(Industry)', y = 'log(CO2)')+ 
+  geom_point(color="darkblue", fill="lightblue") +  geom_smooth()
+```
+
+### *Figure 3*: Correlation matrix
+```{r echo=FALSE, warning=FALSE, fig.width=5, fig.height=3, fig.align = 'center'}
+# Correlation matrix
+df1 <- df %>% select(-c('Country','co2','gdp','industry','PR', 'CL'))
+df1.cor = cor(df1, use = "complete.obs")
+corrplot(df1.cor,method="color",cl.lim=c(-1,1), tl.col = "black", addCoef.col = 1,
+         number.cex = 0.7, tl.cex = 0.7, cl.cex = 0.7)
+```
+
+### *Figure 4*: Estimation results for different income level groups
+
+```{r echo=FALSE}
+# Creating separate database for low-income countries
+low_income <- df[df$Country %in% c("Afghanistan", "Burkina Faso", "Burundi", "Central African Republic",
+                                   "Chad", "Congo, Dem. Rep.", "Eritrea", "Ethiopia", "The Gambia",
+                                   "Guinea", "Guinea-Bissau", "North Korea", "Liberia", "Madagascar",
+                                   "Malawi", "Mali", "Mozambique", "Niger", "Rwanda",
+                                   "Sierra Leone", "Somalia", "South Sudan", "Sudan", "Syria",
+                                   "Togo", "Uganda", "Yemen", "Zambia"),]
+
+mod1 <- lm_robust(ln_co2~ln_gdp+ln_industry+trade+ren_energy+inst_quality, data=low_income)
+
+# Creating separate database for lower-middle countries
+lower_middle <- df[df$Country %in% c("Algeria", "Angola", "Bangladesh","Benin","Bhutan",
+                                     "Bolivia", "Cabo Verde", "Cambodia", "Cameroon",
+                                     "Comoros",
+                                     "Congo, Rep.", "Cote d'Ivoire", "Djibouti", "Egypt", "El Salvador",
+                                     "Eswatini", "Ghana", "Haiti", "Honduras", "India",
+                                     "Indonesia", "Iran", "Kenya", "Kiribati", "Kyrgyzstan",
+                                     "Laos", "Lebanon", "Lesotho", "Mauritania","Micronesia",
+                                     "Mongolia", "Morocco", "Myanmar", "Nepal", "Nicaragua",
+                                     "Nigeria", "Pakistan", "Papua New Guinea", "Philippines", "Samoa",
+                                     "Sao Tome and Principe", "Senegal", "Solomon Islands", "Sri Lanka",
+                                     "Tajikistan", "Tanzania", "Timor-Leste", "Tunisia", 
+                                     "Ukraine", "Uzbekistan", "Vanuatu", "Vietnam", "Zimbabwe"), ]
+
+mod2 <- lm_robust(ln_co2~ln_gdp+ln_industry+trade+ren_energy+inst_quality, data=lower_middle)
+
+# Creating separate database for upper-middle countries
+upper_middle <- df[df$Country %in% c("Albania", "Samoa", "Argentina", "Armenia", "Azerbaijan",
+                                     "Belarus", "Belize", "Bosnia and Herzegovina", "Botswana", "Bulgaria", 
+                                     "Brazil","China", "Colombia", "Costa Rica", "Cuba", "Dominica", 
+                                     "Dominican Republic", "Ecuador", "Equatorial Guinea", "Fiji", "Gabon",
+                                     "Georgia", "Grenada", "Guatemala","Guyana", "Iraq", 
+                                     "Jamaica", "Jordan", "Kazakhstan", "Kosovo", "Libya",
+                                     "Malaysia", "Maldives", "Marshall Islands", "Mauritius",
+                                     "Mexico", "Moldova", "Montenegro", "Namibia", "North Macedonia",
+                                     "Palau", "Paraguay", "Peru", "Russia", "Serbia", 
+                                     "South Africa", "St. Lucia", "St. Vincent and the Grenadines", "Suriname", "Tonga",
+                                     "Thailand", "Turkey", "Turkmenistan", "Tuvalu"),]
+
+mod3 <- lm_robust(ln_co2~ln_gdp+ln_industry+trade+ren_energy+inst_quality, data=upper_middle)
+
+# Creating separate database for high-income countries
+high_income <- df[df$Country %in% c("Andorra", "Antigua and Barbuda", "Australia", "Austria", "Bahamas",
+                                    "Bahrain", "Barbados", "Belgium", "Brunei", "Canada", 
+                                    "Chile", "Croatia", "Cyprus", "Czech Republic", "Denmark",
+                                    "Estonia", "Finland", "France", "Germany", "Greece",
+                                    "Hungary", "Iceland", "Ireland","Israel","Italy",
+                                    "Japan", "South Korea", "Kuwait", "Latvia", "Liechtenstein",
+                                    "Lithuania", "Luxembourg", "Malta", "Monaco", "Nauru",
+                                    "Netherlands", "New Zealand", "Norway", "Panama", "Poland",
+                                    "Portugal", "Qatar", "Romania", "San Marino", "Saudi Arabia",
+                                    "Seychelles", "Singapore", "Slovakia", "Slovenia", "Spain",
+                                    "St. Kitts and Nevis", "Sweden", "Switzerland", "Trinidad and Tobago", "United Arab Emirates",
+                                    "United Kingdom", "United States", "Uruguay"),]
+mod4 <- lm_robust(ln_co2~ln_gdp+ln_industry+trade+ren_energy+inst_quality, data=high_income)
+
+# Summarizing results for 4 new models
+msummary(list( "(1)Low-income" = mod1, "(2)Lower-middle" = mod2, "(3)Upper-middle" = mod3, "(4)High-income" = mod4),
+         fmt="%.3f",
+         gof_omit = 'DF|Deviance|Log.Lik.|F|AIC|BIC|PseudoR2|RMSE',
+         stars=c('*' = 0.1, '**' = .05, '***' = .01),
+         coef_rename = cm
+) %>%
+   kableExtra::kable_styling(latex_options = "HOLD_position")
+```
+
